@@ -23,15 +23,10 @@ namespace protobuf {
 template <typename ElementType>
 class RepeatedFieldProxy;
 
-template <int&... DeductionBarrier, typename T, typename Pred>
-size_t erase_if(RepeatedFieldProxy<T> cont, Pred pred);
-template <int&... DeductionBarrier, typename T, typename U>
-size_t erase(RepeatedFieldProxy<T> cont, const U& value);
-
 namespace internal {
 
-template <typename T, typename... Args>
-RepeatedFieldProxy<T> ConstructRepeatedFieldProxy(Args&&... args);
+template <typename ElementType>
+class RepeatedFieldProxyInternalPrivateAccessHelper;
 
 // Casts up to a `RepeatedFieldProxy<ElementType>` from a subclass of
 // `RepeatedFieldProxy<ElementType>`. This is used to implement the CRTP
@@ -592,14 +587,7 @@ class PROTOBUF_DECLSPEC_EMPTY_BASES RepeatedFieldProxy final
   friend internal::RepeatedFieldProxyWithEmplaceBack<ElementType, void>;
   friend internal::RepeatedFieldProxyWithResize<ElementType, void>;
 
-  template <typename T, typename... Args>
-  friend RepeatedFieldProxy<T> internal::ConstructRepeatedFieldProxy(
-      Args&&... args);
-
-  template <int&... DeductionBarrier, typename T, typename Pred>
-  friend size_t erase_if(RepeatedFieldProxy<T> cont, Pred pred);
-  template <int&... DeductionBarrier, typename T, typename U>
-  friend size_t erase(RepeatedFieldProxy<T> cont, const U& value);
+  friend internal::RepeatedFieldProxyInternalPrivateAccessHelper<ElementType>;
 
   RepeatedFieldProxy(RepeatedFieldType& field, Arena* arena)
       : Base(field), arena_(arena) {
@@ -667,9 +655,8 @@ class RepeatedFieldProxy<const ElementType> final
  private:
   friend RepeatedFieldProxy<ElementType>;
 
-  template <typename T, typename... Args>
-  friend RepeatedFieldProxy<T> internal::ConstructRepeatedFieldProxy(
-      Args&&... args);
+  friend internal::RepeatedFieldProxyInternalPrivateAccessHelper<
+      const ElementType>;
 
   // Note that we don't need an arena pointer here, since we don't mutate the
   // underlying repeated field.
@@ -684,30 +671,76 @@ namespace internal {
 static_assert(sizeof(RepeatedFieldProxy<int>) == 2 * sizeof(void*));
 static_assert(sizeof(RepeatedFieldProxy<const int>) == sizeof(void*));
 
-// A helper function to construct a `RepeatedFieldProxy`. This is more scalable
-// than friending all places that need to construct `RepeatedFieldProxy`.
-template <typename T, typename... Args>
-inline RepeatedFieldProxy<T> ConstructRepeatedFieldProxy(Args&&... args) {
-  return RepeatedFieldProxy<T>(std::forward<Args>(args)...);
-}
-
 template <template <typename...> class C, typename ElementType>
 RepeatedFieldProxy<ElementType> ToProxyType(const C<ElementType>* proxy) {
   return *static_cast<const RepeatedFieldProxy<ElementType>*>(proxy);
 }
+
+// A helper class for accessing private members of `RepeatedFieldProxy` in
+// Protobuf internal code.
+//
+// DO NOT USE this class for any reason outside of protobuf internal code.
+template <typename ElementType>
+class RepeatedFieldProxyInternalPrivateAccessHelper {
+  using InnerFieldReferenceType =
+      decltype(std::declval<RepeatedFieldProxy<ElementType>>().field());
+
+ public:
+  template <typename... Args>
+  static RepeatedFieldProxy<ElementType> Construct(Args&&... args) {
+    return RepeatedFieldProxy<ElementType>(std::forward<Args>(args)...);
+  }
+
+  static InnerFieldReferenceType field(
+      const RepeatedFieldProxy<ElementType>& proxy) {
+    return proxy.field();
+  }
+};
 
 }  // namespace internal
 
 // Like C++20's std::erase_if, for RepeatedFieldProxy
 template <int&... DeductionBarrier, typename T, typename Pred>
 size_t erase_if(RepeatedFieldProxy<T> cont, Pred pred) {
-  return google::protobuf::erase_if(cont.field(), pred);
+  return google::protobuf::erase_if(
+      internal::RepeatedFieldProxyInternalPrivateAccessHelper<T>::field(cont),
+      pred);
 }
 
 // Like C++20's std::erase, for RepeatedFieldProxy
 template <int&... DeductionBarrier, typename T, typename U>
 size_t erase(RepeatedFieldProxy<T> cont, const U& value) {
-  return google::protobuf::erase(cont.field(), value);
+  return google::protobuf::erase(
+      internal::RepeatedFieldProxyInternalPrivateAccessHelper<T>::field(cont),
+      value);
+}
+
+// Like C++20's std::sort, for RepeatedFieldProxy.
+template <int&... DeductionBarrier, typename T, typename Compare>
+void c_sort(RepeatedFieldProxy<T> cont, Compare cmp) {
+  google::protobuf::c_sort(
+      internal::RepeatedFieldProxyInternalPrivateAccessHelper<T>::field(cont),
+      cmp);
+}
+// Like C++20's std::sort, for RepeatedFieldProxy, with default comparison.
+template <int&... DeductionBarrier, typename T>
+void c_sort(RepeatedFieldProxy<T> cont) {
+  google::protobuf::c_sort(
+      internal::RepeatedFieldProxyInternalPrivateAccessHelper<T>::field(cont));
+}
+// Like C++20's std::stable_sort, for RepeatedFieldProxy.
+template <int&... DeductionBarrier, typename T, typename Compare>
+void c_stable_sort(RepeatedFieldProxy<T> cont, Compare cmp) {
+  google::protobuf::c_stable_sort(
+      internal::RepeatedFieldProxyInternalPrivateAccessHelper<T>::field(cont),
+      cmp);
+}
+// Like C++20's std::stable_sort, for RepeatedFieldProxy, with default
+// comparison.
+template <int&... DeductionBarrier, typename T>
+void c_stable_sort(RepeatedFieldProxy<T> cont) {
+  google::protobuf::c_stable_sort(
+      internal::RepeatedFieldProxyInternalPrivateAccessHelper<T>::field(cont));
 }
 
 }  // namespace protobuf
